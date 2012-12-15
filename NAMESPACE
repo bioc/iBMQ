@@ -1,0 +1,6 @@
+# Default NAMESPACE created by R
+# Remove the previous line if you edit this file
+
+# Export all names
+useDynLib(iBMQ, .registration = TRUE, .fixes = "C_")
+export(calculateThreshold, eqtlClassifier, eqtlFinder, eqtlMcmc, hotspotFinder)
