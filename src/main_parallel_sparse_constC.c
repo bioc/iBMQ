@@ -13,7 +13,9 @@
 #include "ARS.h"
 #include "iBMQ_common.h"
 
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -237,6 +239,7 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 
 		#pragma omp parallel private(th_id, Y_g, workspace, chunk_g) num_threads(*nP)
 		{
+#ifdef _OPENMP
 			th_id = omp_get_thread_num();
 
 			#pragma omp for nowait
@@ -258,6 +261,7 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 						n_genes, rngs[th_id], *nmax,
 						xA[j], xB[j], &workspace);
 			}
+#endif
 		}
 
 		if((iter > (*burn_in)) & ((iter-(*burn_in))%(*n_sweep) == 0))

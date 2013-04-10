@@ -16,7 +16,9 @@
 #include "sparse.h"
 #include "ARS.h"
 #include <float.h>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
