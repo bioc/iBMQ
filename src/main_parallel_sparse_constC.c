@@ -13,7 +13,9 @@
 #include "ARS.h"
 #include "iBMQ_common.h"
 
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
