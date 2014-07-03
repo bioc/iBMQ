@@ -29,7 +29,7 @@
 #include <gsl/gsl_check_range.h>
 
 void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
-		int *n_snps, int *n_iter, int *burn_in, int *n_sweep, double *outProbs, int n_threads, int *nmax,
+		int *n_snps, int *n_iter, int *burn_in, int *n_sweep, double *outProbs, int *nP, int *nmax,
 		int *write_output);
 
 void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
