@@ -14,7 +14,6 @@
 #include "ARS.h"
 #include "iBMQ_common.h"
 
-#include <omp.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
