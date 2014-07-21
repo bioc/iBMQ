@@ -1,2 +1,0 @@
-PKG_CPPFLAGS += -I$(RHOME)/src/include -I$(LIB_GSL)$(R_ARCH)/include $(SHLIB_OPENMP_CFLAGS)
-PKG_LIBS += -L$(LIB_GSL)$(R_ARCH)/lib -lgsl -lgslcblas -lm $(SHLIB_OPENMP_CFLAGS)

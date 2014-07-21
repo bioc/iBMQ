@@ -15,7 +15,13 @@
 #include "sparse.h"
 #include "ARS.h"
 #include <float.h>
+
+#include <Rconfig.h>
+// conditional omp support
+#ifdef SUPPORT_OPENMP
 #include <omp.h>
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
