@@ -14,7 +14,6 @@
 #include "ARS.h"
 #include "iBMQ_common.h"
 
-#include <omp.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -28,22 +27,17 @@
 #include <gsl/gsl_sf.h>
 #include <gsl/gsl_check_range.h>
 
-#if (R_VERSION >= R_Version(2,3,0))
-#define R_INTERFACE_PTRS 1
-#define CSTACK_DEFNS 1
-#include <Rinterface.h>
-#endif
-
 void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 		int *n_snps, int *n_iter, int *burn_in, int *n_sweep, double *outProbs, int *nP, int *nmax,
 		int *write_output);
 
-void update_gene_g(ptr_m_el beta_g, int** Gamma, double** W_Logit,
-		int** W_Ind, gsl_matrix* X, const gsl_vector* Y_g,
+void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
+		int** W_Ind, const gsl_matrix* X, const gsl_vector* Y_g,
 		double* C_g, double* Mu_g, double* Sig2_g,
 		const double* expr_means, const double* expr_vars, const double* alpha2_beta,
 		int* n_snps, int* n_genes, int* n_indivs, int g, const gsl_vector* one, RngStream rng,
-		ptr_memChunk ptr_chunk_g);
+		ptr_memChunk ptr_chunk_g, gsl_vector* Y_minus_mu_g, gsl_vector* Xbeta_sum_g,
+		gsl_vector* Resid_minus_j);
 
 void store_mcmc_output(FILE *Afile, FILE *Bfile, FILE *Pfile, FILE *Mufile, FILE *Sig2file,
 		FILE *Cfile,
@@ -54,10 +48,14 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 		int *n_snps, int *n_iter, int *burn_in, int *n_sweep, double *outProbs, int *nP, int *nmax,
 		int *write_output)
 {
-	R_CStackLimit = (uintptr_t)-1;
-
-	int iter, i, j, g, th_id = 0;
-
+	int iter, i, j, g, th_id = 0, n_threads;
+#ifdef SUPPORT_OPENMP
+     n_threads = *nP;
+     Rprintf("eQTL running with %d threads\n", n_threads);
+#else
+     n_threads = 1;
+     Rprintf("OMP not supported with this installation of iBMQ. Running eQTL running with 1 thread\n");
+#endif
 	// initialize a memory pool for linked list elements of the sparse matrix;
 	memPool pool;
 	ptr_memPool ptr_pool = &pool;
@@ -160,7 +158,6 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 	double* tau_0 = &tau0;
 
 	// initialize random number streams
-	Rprintf("eQTL running with %d threads \n", *nP);
 	GetRNGstate();
 	unsigned long seed[6];
 	for(j = 0; j < 6; j++)
@@ -175,8 +172,8 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 		Rprintf("Setting Seed failed \n");
 	}
 
-	RngStream rngs[*nP];
-	for(i = 0; i < *nP; i++)
+	RngStream rngs[n_threads];
+	for(i = 0; i < n_threads; i++)
 	{
 		rngs[i] = RngStream_CreateStream("");
 		//RngStream_IncreasedPrecis(rngs[i], 1);
@@ -195,6 +192,16 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 			n_snps, n_genes, n_indivs, nmax, rngs[0]);
 
 	// working vectors
+	gsl_vector * Y_minus_mu_g[n_threads];
+	gsl_vector * Xbeta_sum_g[n_threads];
+	gsl_vector * Resid_minus_j[n_threads];
+	for(i = 0; i < n_threads; i++)
+	{
+		Y_minus_mu_g[i] = gsl_vector_calloc(*n_indivs);
+		Xbeta_sum_g[i] = gsl_vector_calloc(*n_indivs);
+		Resid_minus_j[i] = gsl_vector_calloc(*n_indivs);
+	}
+
 	gsl_vector_view Y_g;
 	gsl_vector* one = gsl_vector_calloc(*n_indivs);
 	gsl_vector_set_all(one, 1.0);
@@ -210,10 +217,14 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 		//if the user wants to interrupt computation (^C)
 		R_CheckUserInterrupt();
 		// update genes and positions
-		#pragma omp parallel private(th_id, Y_g, workspace, chunk_g) num_threads(*nP)
+		#pragma omp parallel private(th_id, Y_g, workspace, chunk_g) num_threads(n_threads)
 		{
+		    // degrade to a single thread when openMP is not supported.
+#ifdef SUPPORT_OPENMP
 			th_id = omp_get_thread_num();
-
+#else
+			th_id = 0;
+#endif
 			#pragma omp for
 			for(g = 0; g < *n_genes; g++)
 			{
@@ -222,7 +233,8 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 				update_gene_g(Beta[g], Gamma, W_Logit, W_Ind, X,
 						&Y_g.vector, &(C[g]), &(Mu[g]), &(Sig2[g]),
 						expr_means, expr_vars, alpha2_beta,
-						n_snps, n_genes, n_indivs, g, one, rngs[th_id], chunk_g);
+						n_snps, n_genes, n_indivs, g, one, rngs[th_id], chunk_g,
+						Y_minus_mu_g[th_id], Xbeta_sum_g[th_id], Resid_minus_j[th_id]);
 			}
 
 			#pragma omp for
@@ -237,7 +249,7 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 
 		if((iter > (*burn_in)) & ((iter-(*burn_in))%(*n_sweep) == 0))
 		{
-			update_prob_include(n_snps, n_genes, Gamma, ProbSum);
+			update_prob_include(*n_snps, *n_genes, Gamma, ProbSum);
 			if(*write_output != 0)
 			{
 				store_mcmc_output(Afile, Bfile, Pfile, Mufile, Sig2file, Cfile,
@@ -253,15 +265,18 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 		}
 	}
 	// outputs estimate of P(gamma[j][g] = 1 | data)
-	store_prob_include(n_iter, n_snps, n_genes, ProbSum, outProbs);
+	store_prob_include(*n_iter, *n_snps, *n_genes, ProbSum, outProbs);
 
 	gsl_matrix_free(X);
 	gsl_matrix_free(Y);
 	gsl_vector_free(one);
 
-	for(i = 0; i < *nP; i++)
+	for(i = 0; i < n_threads; i++)
 	{
 		RngStream_DeleteStream(rngs[i]);
+		gsl_vector_free(Y_minus_mu_g[i]);
+		gsl_vector_free(Resid_minus_j[i]);
+		gsl_vector_free(Xbeta_sum_g[i]);
 	}
 
 	if(*write_output != 0)
@@ -277,36 +292,30 @@ void iBMQ_main(double *gene, int *n_indivs, int *n_genes, double *snp,
 }
 
 void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
-		int** W_Ind, gsl_matrix* X, const gsl_vector* Y_g,
+		int** W_Ind, const gsl_matrix* X, const gsl_vector* Y_g,
 		double* C_g, double* Mu_g, double* Sig2_g,
 		const double* expr_means, const double* expr_vars, const double* alpha2_beta,
 		int* n_snps, int* n_genes, int* n_indivs, int g, const gsl_vector* one, RngStream rng,
-		ptr_memChunk ptr_chunk_g)
+		ptr_memChunk ptr_chunk_g, gsl_vector* Y_minus_mu_g, gsl_vector* Xbeta_sum_g,
+		gsl_vector* Resid_minus_j)
 {
-	gsl_vector* Y_minus_mu_g = gsl_vector_calloc(*n_indivs);
-	gsl_vector* Xbeta_sum_g = gsl_vector_calloc(*n_indivs);
-	gsl_vector* Resid_minus_j = gsl_vector_calloc(*n_indivs);
-
 	gsl_blas_dcopy(Y_g, Y_minus_mu_g);
 	gsl_vector_add_constant(Y_minus_mu_g, -1.0*(*Mu_g));
 	gsl_vector_set_all(Xbeta_sum_g, 0.0);
 
 	int i, j, cur;
-	double S_j, v1, v2, p1, w_jg, temp, logodds;
+	double S_j, v1, v2, temp, logodds;
 	double Cg = *C_g;
 	double Sg = *Sig2_g;
 	v1 = -.5*log1p(Cg);
 
 	// X %*% B_g   (fitted expression values for gene g), using the sparse representation of beta
 	SV_gsl_dmvpy(X, beta_g, Xbeta_sum_g->data, *n_indivs);
-	for(j = 0; j < *n_snps; j++)
-	{
-		if(W_Ind[j][g] == 1)
-		{
-			gsl_vector_view X_j = gsl_matrix_column(X, j);
+	for(j = 0; j < *n_snps; j++) {
+		if(W_Ind[j][g] == 1) {
+			gsl_vector_const_view X_j = gsl_matrix_const_column(X, j);
 			// take away the j'th component from the sum, which is non-zero only if gamma[j][g] is nonzero
-			if(Gamma[j][g] == 1)
-			{
+			if (Gamma[j][g] == 1) {
 				gsl_blas_daxpy(-1.0*SV_get(beta_g, j), &X_j.vector, Xbeta_sum_g);
 			}
 			gsl_blas_dcopy(Y_minus_mu_g, Resid_minus_j);
@@ -320,8 +329,7 @@ void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
 
 			// update gammas and betas
 			cur = (int)(logit(RngStream_RandU01(rng)) <= logodds);
-			if(Gamma[j][g] == 1 && cur == 0)
-			{
+			if(Gamma[j][g] == 1 && cur == 0) {
 				// removing element j is the same as setting it to zero in a sparse representation
 				SV_remove_el(beta_g, j, ptr_chunk_g);
 				Gamma[j][g] = cur;
@@ -329,8 +337,7 @@ void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
 				// we already removed it above
 			}
 
-			if(cur == 1)
-			{
+			if (cur == 1) {
 				// now the element beta[j][g] is nonzero, so we simulate it and add it to the list
 				temp = S_j*alpha2_beta[j]*(Cg)/(1.0 + (Cg)) + sqrt(v2*(Sg))*RngStream_N01(rng);
 
@@ -348,10 +355,8 @@ void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
 	double G_g = 0.0;
 	v1 = .5;
 
-	for(j = 0; j < *n_snps; j++)
-	{
-		if(Gamma[j][g] == 1)
-		{
+	for(j = 0; j < *n_snps; j++) {
+		if (Gamma[j][g] == 1) {
 			v1 += .5;
 			G_g += gsl_pow_2(SV_get(beta_g, j))/alpha2_beta[j];
 		}
@@ -364,8 +369,7 @@ void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
 	//update Sig2_g
 	G_g = G_g / Cg;
 
-	for(i = 0; i < *n_indivs; i++)
-	{
+	for(i = 0; i < *n_indivs; i++) {
 		G_g += gsl_pow_2(gsl_vector_get(Y_minus_mu_g, i) - gsl_vector_get(Xbeta_sum_g, i));
 	}
 
@@ -387,11 +391,6 @@ void update_gene_g(ptr_m_el beta_g, int** Gamma,  double** W_Logit,
 	v2 = 1.0 / ((double)*n_indivs / (Sg) + 1.0 / expr_vars[g]);
 
 	*Mu_g = v1 + sqrt(v2) * RngStream_N01(rng);
-
-	gsl_vector_free(Y_minus_mu_g);
-	gsl_vector_free(Xbeta_sum_g);
-	gsl_vector_free(Resid_minus_j);
-
 	return;
 }
 
