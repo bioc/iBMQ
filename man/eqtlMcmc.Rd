@@ -27,7 +27,9 @@ eqtlMcmc(snp, expr, n.iter, burn.in, n.sweep, mc.cores,
   	the working directory.}
   \item{RIS}{If TRUE, the genotype needs to be either 0 and 1. If FALSE the genotype need to be either 1,2 and 3.}
 }
-
+\details{
+The value of \code{mc.cores} may be ignored and set to one when the iBMQ installation does not support openMP.
+}
 \value{
 A matrix with Posterior Probability of Association values. Rows correspond to snps
 from original snp data objects, columns correspond to genes from expr data objects.
