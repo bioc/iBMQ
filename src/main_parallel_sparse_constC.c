@@ -13,7 +13,6 @@
 #include "ARS.h"
 #include "iBMQ_common.h"
 
-#include <omp.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -46,7 +45,14 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 	/* Structures to hold various parameters.
 	 *
 	 * When possible variable names are analogous to those found in the paper */
-	int iter, i, j, g, th_id = 0;
+	int iter, i, j, g, th_id = 0, n_threads;
+	#ifdef SUPPORT_OPENMP
+	     n_threads = *nP;
+	     Rprintf("eQTL running with %d threads\n", n_threads);
+	#else
+	     n_threads = 1;
+	     Rprintf("OMP not supported with this installation of iBMQ. Running eQTL running with 1 thread\n");
+	#endif
 
 	// initialize a memory pool for linked list elements of the sparse matrix;
 	// it's way bigger than it needs to be, just to be on the safe side,
@@ -176,7 +182,6 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 	double* tau_0 = &tau0;
 
 	// initialize random number streams
-	Rprintf("%d processors running \n", *nP);
 	GetRNGstate();
 	unsigned long seed[6];
 	for(j = 0; j < 6; j++)
@@ -191,8 +196,8 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 		Rprintf("Setting Seed failed \n");
 	}
 
-	RngStream rngs[*nP];
-	for(i = 0; i < *nP; i++)
+	RngStream rngs[n_threads];
+	for(i = 0; i < n_threads; i++)
 	{
 		rngs[i] = RngStream_CreateStream("");
 		//RngStream_IncreasedPrecis(rngs[i], 1);
@@ -227,8 +232,12 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 
 		#pragma omp parallel private(th_id, Y_g, workspace, chunk_g) num_threads(*nP)
 		{
-			th_id = omp_get_thread_num();
-
+            // degrade to a single thread when openMP is not supported.
+#ifdef SUPPORT_OPENMP
+            th_id = omp_get_thread_num();
+#else
+            th_id = 0;
+#endif
 			#pragma omp for nowait
 			for(g = 0; g < *n_genes; g++)
 			{
@@ -300,7 +309,7 @@ void c_qtl_main_parallel_sparse_constC(double *gene, int *n_indivs, int *n_genes
 	free(xB);
 	deletePool(ptr_pool);
 
-	for(i = 0; i < *nP; i++)
+	for(i = 0; i < n_threads; i++)
 	{
 		RngStream_DeleteStream(rngs[i]);
 	}
