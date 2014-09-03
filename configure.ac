@@ -36,7 +36,7 @@ AC_SUBST(OPENMP_CFLAGS)
 
 AC_CHECK_HEADERS(omp.h,
   [
-    LIBS+=-lgomp
+    LIBS+=" -lgomp"
     OPENMP_CFLAGS=-fopenmp
   ],
   [
