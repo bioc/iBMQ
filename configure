@@ -3706,7 +3706,7 @@ if test "x$ac_cv_header_omp_h" = xyes; then :
 #define HAVE_OMP_H 1
 _ACEOF
 
-    LIBS+=-lgomp
+    LIBS+=" -lgomp"
     OPENMP_CFLAGS=-fopenmp
 
 else
