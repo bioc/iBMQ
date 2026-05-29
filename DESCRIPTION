@@ -12,3 +12,4 @@ biocViews: Microarray, Preprocessing, GeneExpression, SNP
 URL: http://www.rglab.org
 SystemRequirements: GSL and OpenMP
 Packaged: 2013-04-11 06:31:28 UTC; biocbuild
+Config/Bioconductor/UnsupportedPlatforms: macosx
